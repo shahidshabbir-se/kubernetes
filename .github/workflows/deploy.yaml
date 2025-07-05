@@ -2,41 +2,54 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 jobs:
   deploy:
+    name: Build and Deploy to Kubernetes via Tailscale
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Log in to GHCR
+    - name: Log in to GitHub Container Registry (GHCR)
       run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-    - name: Build and Push Docker image
+    - name: Build and Push Docker image to GHCR
       run: |
         docker build -t ghcr.io/shahidshabbir-se/kubernetes:latest .
         docker push ghcr.io/shahidshabbir-se/kubernetes:latest
 
-    - name: Prepare SSH key
+    - name: Prepare SSH key for Tailscale access
       run: |
-        echo "${{ secrets.VPS_SSH_KEY }}" | base64 --decode > ~/.ssh/vps_key
+        mkdir -p ~/.ssh
+        echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
         chmod 600 ~/.ssh/vps_key
 
-    - name: Deploy to VPS via SSH
+    - name: SSH into VPS and deploy with kubectl
       run: |
-        ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }} << 'EOF'
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }} << 'EOF'
+          set -e
+
+          echo "[+] Pulling latest code..."
           cd ~/k8s-node-app
           git pull origin main
 
-          # Optional: Login to GHCR on VPS
+          echo "[+] Re-authenticating GHCR (if needed)..."
           echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-          # Apply manifests
+          echo "[+] Applying PostgreSQL manifests..."
           kubectl apply -f k8s/postgres/
+
+          echo "[+] Creating/updating Caddy configmap..."
           kubectl create configmap caddy-config --from-file=k8s/caddy/config/Caddyfile --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "[+] Deploying Caddy reverse proxy..."
           kubectl apply -f k8s/caddy/
+
+          echo "[+] Deploying application..."
           kubectl apply -f k8s/app/
+
+          echo "[✔] Deployment complete."
         EOF
