@@ -6,7 +6,7 @@ on:
 
 jobs:
   deploy:
-    name: Build and Deploy to Kubernetes via Tailscale
+    name: Build and Deploy to k3s via Tailscale
     runs-on: ubuntu-latest
 
     steps:
@@ -27,16 +27,17 @@ jobs:
         echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/vps_key
         chmod 600 ~/.ssh/vps_key
 
-    - name: SSH into VPS and deploy with kubectl
+    - name: SSH into VPS and deploy to k3s
       run: |
         ssh -o StrictHostKeyChecking=no -i ~/.ssh/vps_key ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }} << 'EOF'
           set -e
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
           echo "[+] Pulling latest code..."
           cd ~/k8s-node-app
           git pull origin main
 
-          echo "[+] Re-authenticating GHCR (if needed)..."
+          echo "[+] Logging into GHCR (inside VPS)..."
           echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
           echo "[+] Applying PostgreSQL manifests..."
