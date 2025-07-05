@@ -1,0 +1,4 @@
+simple-node.duckdns.org {
+  reverse_proxy app-service:3000
+  tls shahidshabbirse@gmail.com
+}
